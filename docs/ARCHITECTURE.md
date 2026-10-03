@@ -10,17 +10,12 @@ This document describes the architectural design, security boundaries, request f
 graph TD
     Client["AI Agent / MCP Client<br/>(Claude Desktop / Inspector / Custom Agent)"]
     
-    subgraph Connector["WooCommerce MCP Connector (Python)"]
+    subgraph Connector ["WooCommerce MCP Connector (Python)"]
         Server["MCPServer (MCP Python SDK v2)<br/>Transports: Streamable HTTP / stdio"]
         HealthRoute["Health Endpoint (/health)"]
         
-        subgraph Tools["Controlled MCP Tools Layer"]
-            T1["list_orders"]
-            T2["get_order"]
-            T3["search_orders"]
-            T4["list_products"]
-            T5["get_product"]
-            T6["search_products"]
+        subgraph ToolsLayer ["Controlled MCP Tools Layer"]
+            Tools["Controlled MCP Tools<br/>(list_orders, get_order, search_orders,<br/>list_products, get_product, search_products)"]
         end
         
         Val["Validation Layer<br/>(validation.py)"]
@@ -30,7 +25,7 @@ graph TD
         HTTPX["HTTPX AsyncClient<br/>(Connection Pool & TLS)"]
     end
     
-    subgraph Upstream["Upstream Store"]
+    subgraph Upstream ["Upstream Store"]
         WCRest["WooCommerce REST API v3<br/>/wp-json/wc/v3/*"]
         StoreDB[("WordPress / WooCommerce<br/>MySQL Database")]
     end

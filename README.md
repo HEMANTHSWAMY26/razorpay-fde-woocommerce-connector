@@ -18,17 +18,18 @@ This connector provides controlled, privacy-preserving, and resilient access to 
 4. [Key Features](#4-key-features)
 5. [MCP Tools Implemented](#5-mcp-tools-implemented)
 6. [Authentication](#6-authentication)
-7. [Installation & Setup](#7-installation--setup)
+7. [Quick Start & Setup](#7-quick-start--setup)
 8. [Environment Variables](#8-environment-variables)
 9. [Running the Server](#9-running-the-server)
 10. [Running Tests](#10-running-tests)
 11. [Running Live Smoke Test](#11-running-live-smoke-test)
-12. [MCP Inspector & Client Testing](#12-mcp-inspector--client-testing)
-13. [Example Tool Invocations](#13-example-tool-invocations)
-14. [Error Handling & Reliability](#14-error-handling--reliability)
-15. [Security Controls & PII Protection](#15-security-controls--pii-protection)
-16. [Capabilities & Limitations Summary](#16-capabilities--limitations-summary)
-17. [Production Considerations](#17-production-considerations)
+12. [Validation Results](#12-validation-results)
+13. [MCP Inspector & Client Testing](#13-mcp-inspector--client-testing)
+14. [Example Tool Invocations](#14-example-tool-invocations)
+15. [Error Handling & Reliability](#15-error-handling--reliability)
+16. [Security Controls & PII Protection](#16-security-controls--pii-protection)
+17. [Capabilities & Limitations Summary](#17-capabilities--limitations-summary)
+18. [Production Considerations](#18-production-considerations)
 
 ---
 
@@ -134,31 +135,50 @@ Authorization: Basic base64(WOOCOMMERCE_CONSUMER_KEY:WOOCOMMERCE_CONSUMER_SECRET
 
 ---
 
-## 7. Installation & Setup
+## 7. Quick Start & Setup
 
 ### Prerequisites
 * Python 3.10+ (tested on Python 3.10, 3.11, 3.12, 3.13, 3.14)
 * pip or virtualenv
 
-### 1. Clone & Set Up Virtual Environment
+### Complete Quick Start Sequence
+
 ```bash
-# Clone the repository
-git clone <repository-url>
+# 1. Clone repository
+git clone https://github.com/HEMANTHSWAMY26/razorpay-fde-woocommerce-connector.git
 cd razorpay-fde-woocommerce-connector
 
-# Create virtual environment
+# 2. Create virtual environment
 python -m venv .venv
 
-# Activate virtual environment
-# Windows:
+# 3. Activate virtual environment
+# Windows (PowerShell / Command Prompt):
 .\.venv\Scripts\activate
 # Linux/macOS:
 source .venv/bin/activate
-```
 
-### 2. Install Dependencies
-```bash
+# 4. Install dependencies in editable mode
 pip install -e ".[dev]"
+
+# 5. Create local environment configuration from template
+# Windows:
+copy .env.example .env
+# Linux/macOS:
+cp .env.example .env
+
+# 6. Configure WooCommerce credentials in .env
+# Set WOOCOMMERCE_URL, WOOCOMMERCE_CONSUMER_KEY, and WOOCOMMERCE_CONSUMER_SECRET
+
+# 7. Start the MCP server (Streamable HTTP on port 8000)
+woocommerce-mcp --transport streamable-http --port 8000
+
+# 8. Verify the health endpoint (in another terminal)
+curl http://localhost:8000/health
+# Expected: {"status":"ok","service":"woocommerce-mcp-connector","version":"1.0.0"}
+
+# 9. Run automated offline test suite
+pytest -v
+# Expected: 64 passed
 ```
 
 ---
@@ -200,14 +220,20 @@ Or via module execution:
 python -m woocommerce_connector.server --transport streamable-http --port 8000
 ```
 
+* **MCP Endpoint**: `http://localhost:8000/mcp` (Streamable HTTP for network-connected MCP clients)
+* **Health Endpoint**: `http://localhost:8000/health` (Liveness / readiness probe for container orchestrators)
+
 Verify health check:
 ```bash
 curl http://localhost:8000/health
-# {"status":"ok","service":"woocommerce-mcp-connector","version":"1.0.0"}
+```
+Expected response:
+```json
+{"status":"ok","service":"woocommerce-mcp-connector","version":"1.0.0"}
 ```
 
 ### Option B: stdio Transport
-For direct integration with local desktop agents (e.g., Claude Desktop):
+For direct integration with local desktop agents (e.g., Claude Desktop, MCP Inspector) that launch the connector process directly:
 
 ```bash
 woocommerce-mcp --transport stdio
@@ -245,7 +271,29 @@ If credentials are not configured, the script exits gracefully with setup instru
 
 ---
 
-## 12. MCP Inspector & Client Testing
+## 12. Validation Results
+
+All functional boundaries, reliability policies, and security mechanisms have been validated against an active local WooCommerce test store (`https://razorpay-woocommerce-test.wp.local`):
+
+* **64/64 automated tests passing**: Complete offline unit and mocked integration test coverage.
+* **Strictly 6 read-only MCP tools exposed**: `list_orders`, `get_order`, `search_orders`, `list_products`, `get_product`, `search_products`.
+* **Zero write tools**: Prohibits creation, modification, or deletion of orders, inventory, or products.
+* **WooCommerce live authentication & connection verified**: HTTP Basic Auth over HTTPS verified.
+* **Product catalog listing verified**: Retrieves normalized products with pagination metadata.
+* **Single product retrieval verified**: Direct ID lookup returns normalized `ProductSummary`.
+* **Product search verified**: Search queries and REST v3 `search_fields` (`name`, `sku`, etc.) verified.
+* **Order listing and search verified**: Date-range filtering (`after`/`before`) and status filters verified.
+* **Connector-side input validation verified**: Positive integer IDs, limit caps (1–100), ISO 8601 timestamps, and status whitelists enforced.
+* **Error handling & normalization verified**: Upstream 404s map cleanly to `NOT_FOUND`; validation errors to `INVALID_INPUT`.
+* **Retry & rate-limit resilience verified**: Automatic bounded retries with exponential backoff and jitter on 429, 500, 502, 503, 504, and network timeouts.
+* **Upstream `Retry-After` header honored**: Parses both integer seconds and RFC HTTP dates.
+* **Native OS TLS trust store validation verified**: Seamlessly trusts local WordPress Studio root CA via Windows CryptoAPI / macOS Keychain using `truststore` (no `verify=False`).
+* **MCP Streamable HTTP connection verified**: Tested over `http://127.0.0.1:8000/mcp`.
+* **Health endpoint verified**: `GET /health` returns HTTP 200 with service metadata.
+
+---
+
+## 13. MCP Inspector & Client Testing
 
 ### Using MCP Inspector
 To inspect tool schemas and interactively invoke tools using the official MCP Inspector:
@@ -280,7 +328,7 @@ Add the following to your `claude_desktop_config.json`:
 
 ---
 
-## 13. Example Tool Invocations
+## 14. Example Tool Invocations
 
 ### 1. `list_orders`
 ```json
@@ -307,9 +355,46 @@ Add the following to your `claude_desktop_config.json`:
 }
 ```
 
+### 4. `get_product` (Verified Live Store Example)
+**Request**:
+```json
+{
+  "product_id": 13
+}
+```
+**Response**:
+```json
+{
+  "success": true,
+  "data": {
+    "id": 13,
+    "name": "Razorpay Test USB-C Hub",
+    "slug": "razorpay-test-usb-c-hub",
+    "sku": "RP-USB-01",
+    "price": "29.99",
+    "regular_price": "34.99",
+    "sale_price": "29.99",
+    "on_sale": true,
+    "status": "publish",
+    "stock_status": "instock",
+    "stock_quantity": 40,
+    "categories": [
+      {
+        "id": 15,
+        "name": "Accessories",
+        "slug": "accessories"
+      }
+    ],
+    "created_at": "2026-03-20T14:30:00"
+  },
+  "pagination": null,
+  "error": null
+}
+```
+
 ---
 
-## 14. Error Handling & Reliability
+## 15. Error Handling & Reliability
 
 All errors are returned in a predictable, standardized envelope:
 
@@ -340,7 +425,7 @@ All errors are returned in a predictable, standardized envelope:
 
 ---
 
-## 15. Security Controls & PII Protection
+## 16. Security Controls & PII Protection
 
 1. **Read-Only by Construction**: No mutating HTTP methods (POST, PUT, PATCH, DELETE) are ever executed against WooCommerce.
 2. **Input Whitelisting**: Page limits are capped at 100, IDs must be positive integers, and search fields are strictly validated.
@@ -350,7 +435,7 @@ All errors are returned in a predictable, standardized envelope:
 
 ---
 
-## 16. Capabilities & Limitations Summary
+## 17. Capabilities & Limitations Summary
 
 * Detailed capabilities: [docs/CAPABILITIES.md](docs/CAPABILITIES.md)
 * Boundary analysis & omitted features: [docs/LIMITATIONS.md](docs/LIMITATIONS.md)
@@ -358,7 +443,7 @@ All errors are returned in a predictable, standardized envelope:
 
 ---
 
-## 17. Production Considerations
+## 18. Production Considerations
 
 For enterprise production deployment:
 1. **Multi-Tenancy**: Integrate with AWS Secrets Manager or Vault to resolve per-store credentials dynamically based on incoming MCP OAuth tokens.
