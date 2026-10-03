@@ -17,6 +17,9 @@ This connector provides controlled, privacy-preserving, and resilient access to 
 3. [Architecture](#3-architecture)
 4. [Key Features](#4-key-features)
 5. [MCP Tools Implemented](#5-mcp-tools-implemented)
+   * [MCP Interface](#mcp-interface)
+   * [Validation Evidence](#validation-evidence)
+   * [Engineering Decisions & Trade-offs](#engineering-decisions--trade-offs)
 6. [Authentication](#6-authentication)
 7. [Quick Start & Setup](#7-quick-start--setup)
 8. [Environment Variables](#8-environment-variables)
@@ -28,6 +31,7 @@ This connector provides controlled, privacy-preserving, and resilient access to 
 14. [Example Tool Invocations](#14-example-tool-invocations)
 15. [Error Handling & Reliability](#15-error-handling--reliability)
 16. [Security Controls & PII Protection](#16-security-controls--pii-protection)
+    * [Threat Model & Mitigations](#threat-model--mitigations)
 17. [Capabilities & Limitations Summary](#17-capabilities--limitations-summary)
 18. [Production Considerations](#18-production-considerations)
 
@@ -117,6 +121,160 @@ The connector exposes **strictly 6 read-only tools**:
 > **Security Note**: Write tools (`create_order`, `update_order`, `delete_order`, `create_product`, etc.) and generic endpoint callers (`raw_http_request`) **do not exist**.
 
 For full input/output schemas and examples, see [docs/TOOL_SPEC.md](docs/TOOL_SPEC.md).
+
+---
+
+## MCP Interface
+
+The connector exposes six read-only MCP tools. The official MCP Python SDK exposes their structured input schemas to an MCP client:
+
+* **`list_orders`**: Retrieve paginated order collection with status/date filters.
+* **`get_order`**: Lookup single order by integer ID.
+* **`search_orders`**: Search orders by text query, status, customer ID, or date ranges.
+* **`list_products`**: Retrieve paginated product catalog.
+* **`get_product`**: Lookup single product by integer ID.
+* **`search_products`**: Search products by keyword, category, SKU, stock status, and targeted search fields.
+
+### Representative Tool Contract: `search_products`
+
+The MCP client discovers each tool's schema directly through protocol negotiation. Below is a readable representation of the input schema for `search_products`:
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "query": {
+      "type": "string",
+      "description": "Search text to match against products"
+    },
+    "category_id": {
+      "type": "integer",
+      "description": "Filter by product category ID (positive integer)"
+    },
+    "sku": {
+      "type": "string",
+      "description": "Filter by product SKU"
+    },
+    "stock_status": {
+      "type": "string",
+      "description": "Filter by stock status ('instock', 'outofstock', 'onbackorder')"
+    },
+    "status": {
+      "type": "string",
+      "description": "Filter by product status ('publish', 'draft', 'pending', 'private')"
+    },
+    "search_fields": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["name", "sku", "global_unique_id", "description", "short_description"]
+      },
+      "description": "Optional list of fields to target for search matching"
+    },
+    "page": {
+      "type": "integer",
+      "default": 1,
+      "minimum": 1
+    },
+    "limit": {
+      "type": "integer",
+      "default": 20,
+      "minimum": 1,
+      "maximum": 100
+    }
+  }
+}
+```
+
+*Validation Rule:* At least one search criterion must be supplied (`query`, `category_id`, `sku`, `stock_status`, or `status`). IDs must be strictly positive integers ($> 0$), `page` must be $\ge 1$, and `limit` is bounded between 1 and 100.
+
+### Example Tool Invocation
+
+An MCP client invokes the tool with structured arguments:
+
+```json
+{
+  "query": "backpack",
+  "search_fields": ["name"],
+  "page": 1,
+  "limit": 20
+}
+```
+
+**Execution Pipeline:**
+`MCP client` $\rightarrow$ `MCP tool (search_products)` $\rightarrow$ `connector validation` $\rightarrow$ `WooCommerce REST API v3` $\rightarrow$ `normalized response envelope`.
+
+### Example Normalized Response Shape
+
+The response returns a standardized `BaseResponse` envelope. *(Note: Minimal illustrative response envelope based on connector response models)*:
+
+```json
+{
+  "success": true,
+  "data": [],
+  "pagination": {
+    "page": 1,
+    "per_page": 20,
+    "total_items": 0,
+    "total_pages": 0,
+    "has_next_page": false
+  },
+  "error": null
+}
+```
+
+### Design Boundary
+
+* MCP clients can call only the explicitly registered tools.
+* The connector does not expose arbitrary WooCommerce endpoints.
+* The connector does not expose arbitrary HTTP methods.
+* All six tools are read-only.
+
+---
+
+## Validation Evidence
+
+### Automated Tests
+- 64 tests passed / 0 failed.
+- Covers validation, client behavior, retries, error mapping, pagination, PII minimization, and MCP behavior.
+- `git diff --check` passes.
+
+### Live WooCommerce Validation
+- `list_products`, `get_product`, and `search_products` validated against the local HTTPS WooCommerce test store.
+- `search_products` with `search_fields=["name"]` validated.
+- `list_orders` returned an empty structured result when no orders existed.
+- Invalid inputs were rejected before upstream requests.
+- Non-existent product/order IDs returned structured `NOT_FOUND` errors.
+
+### MCP Protocol Validation
+- Streamable HTTP endpoint `/mcp` validated.
+- Exactly six registered tools verified.
+- Structured tool schemas/invocations validated through the official MCP Python SDK.
+- No write/mutation or arbitrary endpoint tools exposed.
+
+### Security Validation
+- Credentials loaded from environment variables and excluded from responses/logs.
+- Customer billing/shipping PII removed from normalized order responses.
+- TLS certificate and hostname verification enabled.
+- No `verify=False` or disabled TLS verification.
+
+---
+
+## Engineering Decisions & Trade-offs
+
+The following table summarizes the core architectural decisions, their concrete implementations, and the associated trade-offs:
+
+| Decision | Implementation Choice | Trade-off & Rationale |
+| :--- | :--- | :--- |
+| **1. Read-Only Design** | Exposes exclusively read (`GET`) operations for orders and products. No create, update, or delete tools exist. | **Trade-off:** The connector cannot create orders, update inventory, or mutate store state.<br/>**Rationale:** For an AI-agent-facing connector, the read-only capability boundary prevents agent instructions from directly causing store mutations through this connector. |
+| **2. Stateless / No Database** | Operates as a stateless translation proxy without local persistence, databases, or cache layers. | **Trade-off:** Every MCP query triggers an upstream HTTP request to WooCommerce.<br/>**Rationale:** The required list/get/search primitives map directly to WooCommerce REST API v3 endpoints. Adding a database introduces state synchronization and cache invalidation complexity not required for this connector MVP. |
+| **3. No Arbitrary Endpoint Proxy** | Whitelisted, discrete MCP tools only. Rejects arbitrary endpoints and arbitrary HTTP methods. | **Trade-off:** MCP clients cannot access unexposed WooCommerce or WordPress REST endpoints without explicit tool additions.<br/>**Rationale:** Constrains the capability surface and prevents the connector from acting as an unrestricted authenticated HTTP proxy across internal WordPress routes. |
+| **4. Pre-Request Validation** | Validates pagination bounds (`page >= 1`, `1 <= limit <= 100`), positive IDs, status enums, ISO dates, and search fields before dispatching network calls. | **Trade-off:** Requires maintaining local validation rules aligned with WooCommerce parameter constraints.<br/>**Rationale:** Rejects malformed queries locally with `INVALID_INPUT`, avoiding unnecessary upstream HTTP calls and conserving store rate limits. |
+| **5. Retry Strategy** | Bounded exponential backoff with full jitter for 429, 5xx, timeouts, and network errors. Parses and honors `Retry-After`. Fails immediately on 400, 401, 403, and 404. | **Trade-off:** Transient failures introduce bounded latency while awaiting backoff windows.<br/>**Rationale:** Because all exposed tools are read-only `GET` operations, retries are idempotent and cannot cause duplicate mutations. Fast-failing deterministic 4xx errors prevents wasteful retry cycles. |
+| **6. PII Minimization** | Strips sensitive customer data during normalization, including billing/shipping street addresses, phone numbers, email addresses, customer IP, user agent, and customer notes. | **Trade-off:** MCP clients cannot retrieve customer contact info or full delivery addresses.<br/>**Rationale:** Protects customer privacy. The connector's defined list/get/search use cases do not require direct customer contact information or full delivery addresses, so these fields are excluded from the MCP response. |
+| **7. TLS Verification via `truststore`** | Injects host OS certificate trust store into HTTPX via `truststore.SSLContext`. Preserves `CERT_REQUIRED` and hostname verification without `verify=False`. | **Trade-off:** Relies on host OS certificate store integration; not necessary for standard public HTTPS domains with public CAs.<br/>**Rationale:** Resolves TLS verification for the local WordPress Studio development environment (which issues local root CAs to the host OS) while strictly preserving TLS validation. |
+| **8. Normalized Response Contract** | Maps raw WooCommerce payloads into defined Pydantic models (`OrderSummary`, `ProductSummary`) wrapped in a standardized `BaseResponse`. | **Trade-off:** Upstream schema changes require updating connector normalization models.<br/>**Rationale:** Prevents raw upstream API structures from leaking into the MCP contract, guarantees predictable response formats, and enforces PII sanitization in the pipeline. |
+| **9. Exactly Six Tools** | Constrains scope to exactly six primitives: `list_orders`, `get_order`, `search_orders`, `list_products`, `get_product`, `search_products`. | **Trade-off:** Does not cover secondary resources such as coupons, refunds, taxes, or customer profile records.<br/>**Rationale:** Provides the full set of required list/get/search primitives for orders and products within the defined assignment scope without unnecessary surface area. |
 
 ---
 
@@ -432,6 +590,25 @@ All errors are returned in a predictable, standardized envelope:
 3. **No Arbitrary HTTP Proxies**: Only predefined WooCommerce endpoints (`/orders`, `/products`) can be called.
 4. **Data Minimization**: Strips customer personal information (`billing`, `shipping`, `customer_ip_address`, `customer_note`) from responses.
 5. **Log Redaction**: Credentials, tokens, and PII are masked before entering console or file logs.
+
+---
+
+## Threat Model & Mitigations
+
+The following threat model outlines specific failure modes, potential threat vectors relevant to an AI-agent-facing integration, and the concrete mitigations implemented in this connector:
+
+| Threat / Failure Mode | Mitigation | Evidence |
+| :--- | :--- | :--- |
+| **Agent attempts store mutation** | The connector cannot perform store mutations because no mutation tools are exposed. All six tools are read-only `GET` primitives. No create, update, or delete tools exist. | [`server.py`](src/woocommerce_connector/server.py), [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md) |
+| **Agent requests arbitrary WooCommerce / WordPress endpoint** | Constrains the capability surface to discrete, explicitly implemented tools. The connector does not accept arbitrary endpoints or arbitrary HTTP methods, preventing use as a generic authenticated proxy. | [`server.py`](src/woocommerce_connector/server.py), [`client.py`](src/woocommerce_connector/client.py) |
+| **Invalid or malicious input** | Enforces connector-side validation on pagination bounds (`page >= 1`, `1 <= limit <= 100`), positive integer IDs, order status enums, ISO 8601 timestamps, and search fields. Rejects invalid requests locally before network dispatch. | [`validation.py`](src/woocommerce_connector/validation.py), [`tests/test_validation.py`](tests/test_validation.py) |
+| **Customer PII exposure** | Sanitization pipeline explicitly strips customer billing/shipping street addresses, phone numbers, email addresses, customer IP (`customer_ip_address`), user agent (`customer_user_agent`), and customer notes (`customer_note`). | [`pii.py`](src/woocommerce_connector/pii.py), [`normalization.py`](src/woocommerce_connector/normalization.py), [`tests/test_pii.py`](tests/test_pii.py) |
+| **Credential exposure** | Credentials are loaded exclusively via environment variables. `Settings.__repr__` and logger filters mask Consumer Keys and Secrets (`ck_...***`). Credentials are never passed in query parameters, logged, or returned in tool outputs. `.env` is excluded via `.gitignore`. | [`config.py`](src/woocommerce_connector/config.py), [`.gitignore`](.gitignore), [`tests/test_config.py`](tests/test_config.py) |
+| **TLS / Man-in-the-Middle (MitM) risk** | Requires HTTPS with certificate validation (`CERT_REQUIRED`) and hostname verification enabled. Uses `truststore` to resolve the local WordPress Studio root CA via the host OS trust store without disabling certificate checks or using `verify=False`. | [`client.py`](src/woocommerce_connector/client.py#L42-L56), [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
+| **WooCommerce rate limiting (HTTP 429)** | Intercepts HTTP 429 and parses `Retry-After` header (integer seconds and RFC HTTP dates). Applies bounded exponential backoff with full randomized jitter to reduce upstream pressure. | [`retry.py`](src/woocommerce_connector/retry.py), [`tests/test_retry.py`](tests/test_retry.py) |
+| **Transient upstream failures & network drops** | Automatically retries idempotent `GET` requests on HTTP 500, 502, 503, 504, connect errors, and timeouts up to `WOOCOMMERCE_MAX_RETRIES`. Fails immediately on deterministic 4xx client errors (400, 401, 403, 404). | [`retry.py`](src/woocommerce_connector/retry.py), [`client.py`](src/woocommerce_connector/client.py) |
+| **Sensitive upstream error leakage** | Maps upstream exceptions to a structured `BaseResponse(success=False, error=ErrorInfo(...))` envelope. Shields internal stack traces and raw HTTP response bodies from the MCP client. | [`models.py`](src/woocommerce_connector/models.py), [`client.py`](src/woocommerce_connector/client.py), [`server.py`](src/woocommerce_connector/server.py) |
+| **Accidental expansion of connector capabilities** | Strictly bounds the MCP tool registry to six defined primitives (`list_orders`, `get_order`, `search_orders`, `list_products`, `get_product`, `search_products`), preventing unintended exposure of secondary store resources. | [`server.py`](src/woocommerce_connector/server.py), [`docs/TOOL_SPEC.md`](docs/TOOL_SPEC.md) |
 
 ---
 
