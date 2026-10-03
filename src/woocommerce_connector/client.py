@@ -3,8 +3,14 @@
 from __future__ import annotations
 
 import logging
+import ssl
 from typing import Any, Mapping, Optional, Tuple
 import httpx
+
+try:
+    import truststore
+except ImportError:
+    truststore = None  # type: ignore[assignment]
 
 from woocommerce_connector.config import Settings
 from woocommerce_connector.models import (
@@ -22,6 +28,18 @@ from woocommerce_connector.normalization import (
 from woocommerce_connector.retry import execute_with_retry
 
 logger = logging.getLogger("woocommerce_connector.client")
+
+
+def _create_ssl_context() -> ssl.SSLContext:
+    """Create a secure SSLContext using native OS certificates.
+
+    Utilizes `truststore` on supported platforms to verify TLS certificates
+    against the operating system trust store (Windows CryptoAPI, macOS Keychain).
+    Preserves strict certificate validation (CERT_REQUIRED) and hostname checking.
+    """
+    if truststore is not None:
+        return truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    return ssl.create_default_context()
 
 
 class WooCommerceClient:
@@ -53,9 +71,11 @@ class WooCommerceClient:
     async def _get_client(self) -> httpx.AsyncClient:
         """Get or create the reusable httpx.AsyncClient."""
         if self._client is None or self._client.is_closed:
+            ssl_ctx = _create_ssl_context()
             self._client = httpx.AsyncClient(
                 timeout=httpx.Timeout(self.settings.timeout_seconds),
                 auth=self._auth,
+                verify=ssl_ctx,
                 headers={
                     "User-Agent": "WooCommerce-MCP-Connector/1.0.0",
                     "Accept": "application/json",
@@ -347,6 +367,9 @@ class WooCommerceClient:
             "page": page,
             "per_page": limit,
         }
+        if search_fields:
+            params["search_fields"] = search_fields
+
         raw_resp, headers = await self._request("products", params)
         if not raw_resp.success:
             return raw_resp

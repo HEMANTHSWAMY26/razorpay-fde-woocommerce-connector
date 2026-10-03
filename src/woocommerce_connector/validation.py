@@ -159,18 +159,20 @@ def validate_iso8601_date(date_str: Optional[str], field_name: str) -> Optional[
 
 
 def validate_search_fields(fields: Optional[list[str]]) -> Optional[list[str]]:
-    """Validate search fields parameter against WooCommerce product search capabilities.
-
-    In the official WooCommerce REST API v3, product search is performed against
-    the 'search' parameter (searching title and content) or SKU.
-    """
+    """Validate search fields parameter against WooCommerce product search capabilities."""
     if fields is None:
         return None
 
     if not isinstance(fields, (list, tuple)):
         raise ValidationError("Parameter 'search_fields' must be a list of field names.")
 
-    allowed_fields = {"title", "content", "sku", "name", "description"}
+    allowed_fields = {
+        "name",
+        "sku",
+        "global_unique_id",
+        "description",
+        "short_description",
+    }
     cleaned_fields = []
     for f in fields:
         clean = str(f).strip().lower()

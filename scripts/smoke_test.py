@@ -83,6 +83,9 @@ async def run_live_smoke_test(settings: Settings) -> None:
 
 
 def main() -> None:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+
     load_dotenv()
 
     try:

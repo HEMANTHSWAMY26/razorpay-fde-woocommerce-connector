@@ -99,8 +99,23 @@ class TestValidateISO8601Date:
 
 class TestValidateSearchFields:
     def test_valid_search_fields(self):
-        fields = validate_search_fields(["title", "sku"])
-        assert fields == ["title", "sku"]
+        fields = validate_search_fields(["name", "sku"])
+        assert fields == ["name", "sku"]
+
+        all_fields = validate_search_fields([
+            "name",
+            "sku",
+            "global_unique_id",
+            "description",
+            "short_description",
+        ])
+        assert all_fields == [
+            "name",
+            "sku",
+            "global_unique_id",
+            "description",
+            "short_description",
+        ]
 
     def test_none_is_valid(self):
         assert validate_search_fields(None) is None

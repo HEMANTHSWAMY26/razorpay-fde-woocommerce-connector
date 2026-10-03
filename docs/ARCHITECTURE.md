@@ -111,3 +111,8 @@ graph TD
 ### 4. Direct HTTPX Integration
 * **Async Performance**: Uses `httpx.AsyncClient` with connection reuse and keep-alive.
 * **Standardized Protocol**: Directly calls official WooCommerce REST API v3 without intermediary third-party SDK dependencies that may lag behind modern Python or async standards.
+
+### 5. Native OS TLS Certificate Validation (`truststore`)
+* **OS Trust Store Integration**: `WooCommerceClient` uses `truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)` to validate TLS certificates against the host operating system trust store (native Windows Certificate Store on Windows, Keychain on macOS).
+* **Strict Verification Preserved**: Certificate validation and hostname checking remain strictly enforced (`CERT_REQUIRED`). The connector does **not** use `verify=False`.
+* **Seamless Local Development**: Allows local development environments such as WordPress Studio (whose root CA is trusted by the host OS) to communicate securely over HTTPS without weakening TLS verification.

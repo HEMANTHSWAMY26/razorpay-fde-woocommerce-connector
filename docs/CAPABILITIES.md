@@ -30,7 +30,7 @@ This document details the functional capabilities implemented and validated in t
   * Rejects invalid or out-of-range IDs before network execution.
 * **`search_products`**:
   * Text search across product titles, descriptions, and SKU entries.
-  * Optional validation against supported search fields (`title`, `content`, `sku`, `name`, `description`).
+  * Optional validation against supported search fields (`name`, `sku`, `global_unique_id`, `description`, `short_description`).
 
 ---
 

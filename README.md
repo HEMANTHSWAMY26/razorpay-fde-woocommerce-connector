@@ -2,7 +2,7 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![MCP SDK v2](https://img.shields.io/badge/MCP%20SDK-v2.3.0-green.svg)](https://modelcontextprotocol.io/)
-[![Tests](https://img.shields.io/badge/tests-61%20passed-brightgreen.svg)](tests/)
+[![Tests](https://img.shields.io/badge/tests-64%20passed-brightgreen.svg)](tests/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A private, read-only Model Context Protocol (MCP) connector designed for the **Razorpay Forward-Deployed Engineer (FDE) / Agent Studio** assignment. 
@@ -223,7 +223,7 @@ The test suite runs entirely offline using mocked HTTP transports and in-process
 pytest -v
 ```
 
-### Test Coverage Highlights (61 Passing Tests):
+### Test Coverage Highlights (64 Passing Tests):
 * **Unit Tests**: Validation policies, positive integer IDs, pagination safety, status checks, date checks, PII minimization, and log sanitization.
 * **Mocked Upstream HTTP**: Status codes 200, 400, 401, 403, 404, 429, 500, 502, 503, 504, network timeouts, connection drops, and malformed JSON.
 * **Transient Retry Tests**: 500 twice then succeed, retry exhaustion, and 429 with `Retry-After`.
@@ -328,6 +328,7 @@ All errors are returned in a predictable, standardized envelope:
 | HTTP Status / Event | Connector Error Code | Retry Policy |
 | :--- | :--- | :--- |
 | Invalid Input | `INVALID_INPUT` | No retry (rejected locally) |
+| HTTP 400 | `UPSTREAM_ERROR` | No retry |
 | HTTP 401 | `AUTHENTICATION_FAILED` | No retry |
 | HTTP 403 | `PERMISSION_DENIED` | No retry |
 | HTTP 404 | `NOT_FOUND` | No retry |

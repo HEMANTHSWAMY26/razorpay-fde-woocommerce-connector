@@ -10,6 +10,7 @@ This document explicitly defines the boundaries, deliberate omissions, and produ
 | :--- | :---: | :---: |
 | Read-Only Operations (Orders & Products) | ✓ | |
 | Write Operations (Create, Update, Delete) | | ✗ |
+| Customer Management Endpoints (`/customers`) | | ✗ |
 | Arbitrary Endpoints / Raw HTTP Access | | ✗ |
 | Webhook Real-Time Synchronization | | ✗ |
 | Persistent Database Storage | | ✗ |
@@ -77,3 +78,12 @@ This document explicitly defines the boundaries, deliberate omissions, and produ
 * **What is missing**: A fixed platform-wide rate limit formula.
 * **Why it is outside MVP scope**: WooCommerce is a self-hosted WordPress plugin installed on vastly different hosting environments (shared cPanel hosting, managed Cloudways, dedicated VPS, enterprise VIP, Cloudflare / Wordfence WAFs). Each host enforces different throttling algorithms or none at all.
 * **What is needed for production**: The connector implements adaptive defensive handling: honoring standard `Retry-After` headers when returned (HTTP 429), backing off exponentially with jitter, and remaining configurable per deployment via `WOOCOMMERCE_MAX_RETRIES` and `WOOCOMMERCE_RETRY_BACKOFF_BASE`.
+
+---
+
+### 8. No Customer-Management Endpoints (`/customers`)
+* **What is missing**: MCP tools for querying customer records directly (e.g., `list_customers`, `get_customer`).
+* **Why it is outside connector scope**: Customer-management endpoints are intentionally not exposed by this connector. This omission directly aligns with our core design principles:
+  1. **Data Minimization & PII Protection**: Customer profiles in WooCommerce contain full personal identifying information (billing/shipping addresses, phone numbers, emails). Withholding direct customer endpoints prevents customer PII from entering the LLM context window.
+  2. **Deliberately Narrow Tool Surface**: The connector is purpose-built for product catalog discovery and privacy-minimized order tracking, not customer relationship management (CRM) or user directory administration.
+* **What is needed for production**: If customer operations are required in a future phase, a dedicated customer summary model must be designed with explicit field redaction, cryptographic anonymization, and strict tool-level authorization.

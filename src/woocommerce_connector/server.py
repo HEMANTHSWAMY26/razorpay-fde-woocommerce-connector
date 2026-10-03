@@ -291,7 +291,7 @@ def create_server(
 
         Inputs:
             query: Search text to match against products (title, content, sku).
-            search_fields: Optional list of fields ('title', 'content', 'sku', 'name', 'description').
+            search_fields: Optional list of fields ('name', 'sku', 'global_unique_id', 'description', 'short_description').
             page: Positive integer page number (default 1).
             limit: Positive integer items per page (1 to 100, default 20).
         """

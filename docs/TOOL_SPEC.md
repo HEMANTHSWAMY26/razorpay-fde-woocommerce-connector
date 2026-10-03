@@ -386,7 +386,7 @@ Search the product catalog for matching keywords across title, description, or S
 | Parameter | Type | Required | Default | Validation Rules |
 | :--- | :--- | :--- | :--- | :--- |
 | `query` | `string` | Yes | *None* | Search text; cannot be empty or whitespace. |
-| `search_fields` | `list[string]` | No | `None` | Allowed fields: `title`, `content`, `sku`, `name`, `description`. |
+| `search_fields` | `list[string]` | No | `None` | Allowed fields: `name`, `sku`, `global_unique_id`, `description`, `short_description`. |
 | `page` | `integer` | No | `1` | Integer $\ge 1$. |
 | `limit` | `integer` | No | `20` | Integer between $1$ and $100$. |
 
@@ -397,6 +397,7 @@ Search the product catalog for matching keywords across title, description, or S
   * `search` $\leftarrow$ `query`
   * `page` $\leftarrow$ `page`
   * `per_page` $\leftarrow$ `limit`
+  * `search_fields` $\leftarrow$ `search_fields` (if provided)
 
 ### Example Call
 **Request**:

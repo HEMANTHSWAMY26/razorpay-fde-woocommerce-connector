@@ -201,3 +201,72 @@ async def test_malformed_json_response(make_mock_client):
     assert resp.success is False
     assert resp.error.code == ErrorCode.UPSTREAM_ERROR
     assert "unparseable" in resp.error.message.lower()
+
+
+@pytest.mark.asyncio
+async def test_search_products_with_single_search_field(make_mock_client, sample_raw_product):
+    """Verify search_products passes single search_fields parameter to WooCommerce."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/wp-json/wc/v3/products"
+        assert request.url.params["search"] == "BP-001"
+        assert request.url.params["page"] == "1"
+        assert request.url.params["per_page"] == "20"
+        search_fields = request.url.params.get_list("search_fields")
+        assert "sku" in search_fields
+        assert search_fields == ["sku"]
+        return httpx.Response(200, json=[sample_raw_product])
+
+    client = make_mock_client(handler)
+    resp = await client.search_products(
+        query="BP-001",
+        search_fields=["sku"],
+        page=1,
+        limit=20,
+    )
+
+    assert resp.success is True
+    assert resp.data is not None
+    assert len(resp.data) == 1
+    assert resp.data[0]["id"] == 501
+
+
+@pytest.mark.asyncio
+async def test_search_products_with_multiple_search_fields(make_mock_client, sample_raw_product):
+    """Verify search_products passes multiple search_fields as repeated query parameters."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/wp-json/wc/v3/products"
+        assert request.url.params["search"] == "backpack"
+        assert request.url.params["page"] == "1"
+        assert request.url.params["per_page"] == "20"
+        search_fields = request.url.params.get_list("search_fields")
+        assert set(search_fields) == {"sku", "name"}
+        assert len(search_fields) == 2
+        return httpx.Response(200, json=[sample_raw_product])
+
+    client = make_mock_client(handler)
+    resp = await client.search_products(
+        query="backpack",
+        search_fields=["sku", "name"],
+        page=1,
+        limit=20,
+    )
+
+    assert resp.success is True
+    assert resp.data is not None
+    assert len(resp.data) == 1
+
+
+@pytest.mark.asyncio
+async def test_search_products_omits_search_fields_when_none_or_empty(make_mock_client, sample_raw_product):
+    """Verify search_products does not send search_fields when None or empty."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/wp-json/wc/v3/products"
+        assert "search_fields" not in request.url.params
+        return httpx.Response(200, json=[sample_raw_product])
+
+    client = make_mock_client(handler)
+    resp_none = await client.search_products(query="backpack", search_fields=None)
+    assert resp_none.success is True
+
+    resp_empty = await client.search_products(query="backpack", search_fields=[])
+    assert resp_empty.success is True
