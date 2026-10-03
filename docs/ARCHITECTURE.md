@@ -8,44 +8,46 @@ This document describes the architectural design, security boundaries, request f
 
 ```mermaid
 graph TD
-    Client["AI Agent / MCP Client<br/>(Claude Desktop / Inspector / Custom Agent)"]
-    
+    Client["AI Agent / MCP Client<br/>(Claude Desktop / MCP Inspector / Custom Agent)"]
+
     subgraph Connector ["WooCommerce MCP Connector (Python)"]
-        Server["MCPServer (MCP Python SDK v2)<br/>Transports: Streamable HTTP / stdio"]
-        HealthRoute["Health Endpoint (/health)"]
-        
-        subgraph ToolsLayer ["Controlled MCP Tools Layer"]
-            Tools["Controlled MCP Tools<br/>(list_orders, get_order, search_orders,<br/>list_products, get_product, search_products)"]
+        Server["MCP Server (MCPServer — Python SDK v2)<br/>Transports: Streamable HTTP (/mcp) / stdio"]
+        HealthRoute["Health Endpoint<br/>(/health)"]
+
+        subgraph ToolsGroup ["Controlled Read-Only MCP Tools Layer"]
+            Tools["Controlled MCP Tools (6 Read-Only Tools)<br/>• list_orders • get_order • search_orders<br/>• list_products • get_product • search_products"]
         end
-        
+
         Val["Validation Layer<br/>(validation.py)"]
         Norm["Normalization & PII Stripping<br/>(normalization.py & pii.py)"]
-        Retry["Retry & Backoff Engine<br/>(retry.py)"]
         WCClient["WooCommerce Client<br/>(client.py)"]
-        HTTPX["HTTPX AsyncClient<br/>(Connection Pool & TLS)"]
+        Retry["Retry & Backoff Engine<br/>(retry.py)"]
+        HTTPX["HTTPX AsyncClient<br/>(Connection Pooling & Native OS TLS)"]
     end
-    
+
     subgraph Upstream ["Upstream Store"]
-        WCRest["WooCommerce REST API v3<br/>/wp-json/wc/v3/*"]
+        WCRest["WooCommerce REST API v3<br/>(/wp-json/wc/v3/*)"]
         StoreDB[("WordPress / WooCommerce<br/>MySQL Database")]
     end
 
-    Client -->|MCP Protocol / JSON-RPC| Server
-    Server --> HealthRoute
-    Server --> Tools
+    %% Main Request Flow
+    Client -->|JSON-RPC / MCP Protocol| Server
+    Server -. Side Endpoint .-> HealthRoute
+    Server -->|Invoke Tool| Tools
+
+    %% Input Validation & Client Dispatch
     Tools -->|Validate Inputs| Val
-    Val -->|Pass| WCClient
-    Val -.->|Reject| Server
-    WCClient --> Retry
-    Retry --> HTTPX
+    Val -->|Validated Parameters| WCClient
+
+    %% Outbound Request Path with Resilience
+    WCClient -->|Execute with Retries| Retry
+    Retry -->|Connection Pool & TLS Context| HTTPX
     HTTPX -->|HTTPS Basic Auth| WCRest
     WCRest --> StoreDB
-    WCRest -->|JSON Response| HTTPX
-    HTTPX --> WCClient
-    WCClient --> Norm
-    Norm --> Tools
-    Tools --> Server
-    Server -->|Structured Output| Client
+
+    %% Response Path with Data Minimization & Normalization
+    WCClient -.->|Response Path: PII Stripping| Norm
+    Norm -.->|Normalized BaseResponse Envelope| Tools
 ```
 
 ---
